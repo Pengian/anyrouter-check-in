@@ -243,18 +243,33 @@ async def check_in_account(account: AccountConfig, account_index: int, app_confi
 		}
 
 		user_info_url = f'{provider_config.domain}{provider_config.user_info_path}'
-		user_info = get_user_info(client, headers, user_info_url)
+		balance_delay_seconds = app_config.balance_delay_seconds
+		user_info = None
+
+		if provider_config.needs_manual_check_in():
+			success = execute_check_in(client, account_name, provider_config, headers)
+			if success and balance_delay_seconds > 0:
+				print(f'[INFO] {account_name}: Waiting {balance_delay_seconds}s for balance update...')
+				await asyncio.sleep(balance_delay_seconds)
+			user_info = get_user_info(client, headers, user_info_url)
+		else:
+			print(f'[INFO] {account_name}: Check-in completed automatically (triggered by user info request)')
+			user_info = get_user_info(client, headers, user_info_url)
+			success = bool(user_info and user_info.get('success'))
+
+			if success and balance_delay_seconds > 0:
+				print(f'[INFO] {account_name}: Waiting {balance_delay_seconds}s for balance update...')
+				await asyncio.sleep(balance_delay_seconds)
+				refreshed_user_info = get_user_info(client, headers, user_info_url)
+				if refreshed_user_info and refreshed_user_info.get('success'):
+					user_info = refreshed_user_info
+
 		if user_info and user_info.get('success'):
 			print(user_info['display'])
 		elif user_info:
 			print(user_info.get('error', 'Unknown error'))
 
-		if provider_config.needs_manual_check_in():
-			success = execute_check_in(client, account_name, provider_config, headers)
-			return success, user_info
-		else:
-			print(f'[INFO] {account_name}: Check-in completed automatically (triggered by user info request)')
-			return True, user_info
+		return success, user_info
 
 	except Exception as e:
 		print(f'[FAILED] {account_name}: Error occurred during check-in process - {str(e)[:50]}...')

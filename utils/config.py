@@ -8,6 +8,27 @@ import os
 from dataclasses import dataclass
 from typing import Dict, List, Literal
 
+ENV_BALANCE_DELAY_SECONDS = 'BALANCE_DELAY_SECONDS'
+DEFAULT_BALANCE_DELAY_SECONDS = 5
+
+
+def parse_balance_delay_seconds(value: str | None) -> int:
+	"""解析余额刷新延迟秒数（非负整数）"""
+	if value is None:
+		return DEFAULT_BALANCE_DELAY_SECONDS
+
+	normalized = value.strip()
+	if not normalized:
+		return DEFAULT_BALANCE_DELAY_SECONDS
+
+	if normalized.isdigit():
+		return int(normalized)
+
+	print(
+		f'[WARNING] {ENV_BALANCE_DELAY_SECONDS} must be a non-negative integer, got "{value}", using default {DEFAULT_BALANCE_DELAY_SECONDS}'
+	)
+	return DEFAULT_BALANCE_DELAY_SECONDS
+
 
 @dataclass
 class ProviderConfig:
@@ -63,7 +84,7 @@ class ProviderConfig:
 
 	def needs_manual_check_in(self) -> bool:
 		"""判断是否需要手动调用签到接口"""
-		return self.bypass_method == 'waf_cookies'
+		return self.sign_in_path is not None
 
 
 @dataclass
@@ -71,10 +92,13 @@ class AppConfig:
 	"""应用配置"""
 
 	providers: Dict[str, ProviderConfig]
+	balance_delay_seconds: int = DEFAULT_BALANCE_DELAY_SECONDS
 
 	@classmethod
 	def load_from_env(cls) -> 'AppConfig':
 		"""从环境变量加载配置"""
+		balance_delay_seconds = parse_balance_delay_seconds(os.getenv(ENV_BALANCE_DELAY_SECONDS))
+
 		providers = {
 			'anyrouter': ProviderConfig(
 				name='anyrouter',
@@ -106,7 +130,7 @@ class AppConfig:
 
 				if not isinstance(providers_data, dict):
 					print('[WARNING] PROVIDERS must be a JSON object, ignoring custom providers')
-					return cls(providers=providers)
+					return cls(providers=providers, balance_delay_seconds=balance_delay_seconds)
 
 				# 解析自定义 providers,会覆盖默认配置
 				for name, provider_data in providers_data.items():
@@ -124,7 +148,7 @@ class AppConfig:
 			except Exception as e:
 				print(f'[WARNING] Error loading PROVIDERS: {e}, using default configuration only')
 
-		return cls(providers=providers)
+		return cls(providers=providers, balance_delay_seconds=balance_delay_seconds)
 
 	def get_provider(self, name: str) -> ProviderConfig | None:
 		"""获取指定 provider 配置"""
